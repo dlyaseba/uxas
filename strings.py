@@ -2,17 +2,17 @@
 
 class Strings:
     # Window
-    WINDOW_TITLE = "CSV Similarity Matcher"
+    WINDOW_TITLE = "Uxas"
     
     # Buttons
     BTN_SELECT_REFERENCE = "Выбрать источник"
-    BTN_SELECT_CANDIDATES = "Выбрать сравниваемые"
+    BTN_SELECT_CANDIDATES = "Выбрать сравниваемый"
     BTN_RUN = "Запустить"
     BTN_SAVE_RESULTS = "Сохранить результаты"
     
     # Labels
     LABEL_REFERENCE_NOT_SELECTED = "Источник не выбран"
-    LABEL_CANDIDATES_NOT_SELECTED = "Сравниваемый не выбраны"
+    LABEL_CANDIDATES_NOT_SELECTED = "Сравниваемый не выбран"
     LABEL_THRESHOLD = "Порог сходства:"
     LABEL_PROCESSING = "Обработка..."
     LABEL_PROCESSED = "Обработано: {current} / {total}"

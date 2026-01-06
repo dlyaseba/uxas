@@ -3,9 +3,22 @@ import os
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from multiprocessing import Pool, cpu_count
 
 from matcher import best_match
 from strings import Strings
+
+
+# Module-level function for multiprocessing (must be picklable)
+def _process_single_match(args):
+    """Process a single reference name with candidate names."""
+    ref_name, candidate_names, threshold = args
+    match, score = best_match(ref_name, candidate_names, threshold)
+    return {
+        Strings.CSV_COLUMN_REFERENCE: ref_name,
+        Strings.CSV_COLUMN_BEST_MATCH: match,
+        Strings.CSV_COLUMN_SIMILARITY: score
+    }
 
 
 class App:
@@ -190,6 +203,37 @@ class App:
             threshold = self.threshold_var.get()
             total = len(reference_names)
 
+            # Use parallel processing if we have multiple CPUs and multiple items
+            num_workers = min(cpu_count(), 8)  # Cap at 8 to avoid overhead
+            
+            if num_workers > 1 and total > 1:
+                try:
+                    # Prepare arguments for parallel processing
+                    args_list = [(ref, candidate_names, threshold) for ref in reference_names]
+                    
+                    # Process in parallel
+                    with Pool(processes=num_workers) as pool:
+                        results = pool.imap(_process_single_match, args_list)
+                        
+                        processed = 0
+                        for result in results:
+                            result_rows.append(result)
+                            processed += 1
+                            
+                            # Update progress periodically for responsiveness
+                            if processed % 10 == 0 or processed == total:
+                                progress = (processed / total) * 100
+                                self.root.after(0, self._update_progress, progress, processed, total)
+                    
+                    # Final progress update
+                    self.root.after(0, self._update_progress, 100, total, total)
+                    self.root.after(0, self._on_results_ready, result_rows)
+                    return
+                except Exception:
+                    # Fallback to sequential processing if multiprocessing fails
+                    pass
+
+            # Sequential processing (fallback or for small datasets)
             for idx, ref in enumerate(reference_names):
                 match, score = best_match(ref, candidate_names, threshold)
                 result_rows.append({
@@ -199,17 +243,23 @@ class App:
                 })
                 
                 # Update progress
-                progress = (idx + 1) / total * 100
-                self.progress_var.set(progress)
-                self.status_label.config(text=Strings.format_processed(idx + 1, total))
-                self.root.update_idletasks()
+                if (idx + 1) % 10 == 0 or (idx + 1) == total:
+                    progress = (idx + 1) / total * 100
+                    self.root.after(0, self._update_progress, progress, idx + 1, total)
 
             # Hand over to main thread to notify user that results are ready.
+            self.root.after(0, self._update_progress, 100, total, total)
             self.root.after(0, self._on_results_ready, result_rows)
 
         except Exception as e:
             self.root.after(0, lambda: messagebox.showerror(Strings.ERROR_TITLE, str(e)))
             self.root.after(0, self._reset_ui)
+    
+    def _update_progress(self, progress, current, total):
+        """Update progress bar and status label (called from main thread)."""
+        self.progress_var.set(progress)
+        self.status_label.config(text=Strings.format_processed(current, total))
+        self.root.update_idletasks()
 
     def _on_results_ready(self, result_rows):
         """Called on main thread when matching is complete."""
