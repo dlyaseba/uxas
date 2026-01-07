@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QSlider, QLineEdit, QProgressBar,
     QTabWidget, QGroupBox, QCheckBox, QScrollArea, QFileDialog, QMessageBox,
-    QFrame
+    QFrame, QSizePolicy
 )
 from PySide6.QtCore import Qt, QThread, Signal, QCoreApplication
 from PySide6.QtGui import QFont
@@ -172,8 +172,8 @@ class App(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(Strings.WINDOW_TITLE)
-        self.setGeometry(100, 100, 700, 550)
-        self.setMinimumSize(600, 450)
+        self.setGeometry(100, 100, 700, 700)
+        self.setMinimumSize(600, 550)
 
         # Theme management
         self.current_theme = self._detect_system_theme()
@@ -199,9 +199,11 @@ class App(QMainWindow):
         # Main layout
         main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(10)
 
         # Header with title and theme switcher
         header_layout = QHBoxLayout()
+        header_layout.setSpacing(10)
         title_label = QLabel(Strings.WINDOW_TITLE)
         title_font = QFont("Segoe UI", 24, QFont.Bold)
         title_label.setFont(title_font)
@@ -216,20 +218,23 @@ class App(QMainWindow):
         header_layout.addWidget(self.theme_button)
         main_layout.addLayout(header_layout)
 
-        # Create tab widget
+        # Create tab widget with proper size policy
         self.tab_widget = QTabWidget()
-        main_layout.addWidget(self.tab_widget)
+        self.tab_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        main_layout.addWidget(self.tab_widget, 1)  # Stretch factor of 1 to make it expand
 
         # Tab 1: Matching
         matching_tab = QWidget()
         matching_layout = QVBoxLayout(matching_tab)
         matching_layout.setContentsMargins(10, 10, 10, 10)
+        matching_layout.setSpacing(10)
         self.tab_widget.addTab(matching_tab, "Matching")
 
         # Tab 2: Column Selection
         column_tab = QWidget()
         column_layout = QVBoxLayout(column_tab)
         column_layout.setContentsMargins(10, 10, 10, 10)
+        column_layout.setSpacing(10)
         self.tab_widget.addTab(column_tab, "Output Columns")
 
         # Setup Column Selection Tab UI
@@ -238,22 +243,26 @@ class App(QMainWindow):
         # Reference file section
         ref_group = QGroupBox("")
         ref_layout = QVBoxLayout(ref_group)
+        ref_layout.setSpacing(8)
 
         ref_button_layout = QHBoxLayout()
+        ref_button_layout.setSpacing(10)
         self.ref_button = QPushButton(Strings.BTN_SELECT_REFERENCE)
         self.ref_button.clicked.connect(self.load_ref)
         ref_button_layout.addWidget(self.ref_button)
 
         self.ref_label = QLabel(Strings.LABEL_REFERENCE_NOT_SELECTED)
+        self.ref_label.setWordWrap(True)
         ref_button_layout.addWidget(self.ref_label, 1)
         ref_layout.addLayout(ref_button_layout)
 
         ref_column_layout = QHBoxLayout()
+        ref_column_layout.setSpacing(10)
         ref_column_layout.addWidget(QLabel("Column:"))
         self.ref_column_combo = QComboBox()
         self.ref_column_combo.setEditable(False)
         self.ref_column_combo.currentIndexChanged.connect(self.on_ref_column_selected)
-        ref_column_layout.addWidget(self.ref_column_combo)
+        ref_column_layout.addWidget(self.ref_column_combo, 1)
         ref_layout.addLayout(ref_column_layout)
 
         matching_layout.addWidget(ref_group)
@@ -261,22 +270,26 @@ class App(QMainWindow):
         # Candidates file section
         cand_group = QGroupBox("")
         cand_layout = QVBoxLayout(cand_group)
+        cand_layout.setSpacing(8)
 
         cand_button_layout = QHBoxLayout()
+        cand_button_layout.setSpacing(10)
         self.cand_button = QPushButton(Strings.BTN_SELECT_CANDIDATES)
         self.cand_button.clicked.connect(self.load_cand)
         cand_button_layout.addWidget(self.cand_button)
 
         self.cand_label = QLabel(Strings.LABEL_CANDIDATES_NOT_SELECTED)
+        self.cand_label.setWordWrap(True)
         cand_button_layout.addWidget(self.cand_label, 1)
         cand_layout.addLayout(cand_button_layout)
 
         cand_column_layout = QHBoxLayout()
+        cand_column_layout.setSpacing(10)
         cand_column_layout.addWidget(QLabel("Column:"))
         self.cand_column_combo = QComboBox()
         self.cand_column_combo.setEditable(False)
         self.cand_column_combo.currentIndexChanged.connect(self.on_cand_column_selected)
-        cand_column_layout.addWidget(self.cand_column_combo)
+        cand_column_layout.addWidget(self.cand_column_combo, 1)
         cand_layout.addLayout(cand_column_layout)
 
         matching_layout.addWidget(cand_group)
@@ -284,8 +297,10 @@ class App(QMainWindow):
         # Threshold section
         threshold_group = QGroupBox("")
         threshold_layout = QVBoxLayout(threshold_group)
+        threshold_layout.setSpacing(8)
 
         threshold_controls = QHBoxLayout()
+        threshold_controls.setSpacing(10)
         threshold_controls.addWidget(QLabel(Strings.LABEL_THRESHOLD))
 
         self.threshold_slider = QSlider(Qt.Horizontal)
@@ -293,11 +308,12 @@ class App(QMainWindow):
         self.threshold_slider.setMaximum(100)
         self.threshold_slider.setValue(80)
         self.threshold_slider.valueChanged.connect(self.on_slider_change)
-        threshold_controls.addWidget(self.threshold_slider)
+        threshold_controls.addWidget(self.threshold_slider, 1)  # Make slider expand
 
         self.threshold_entry = QLineEdit()
         self.threshold_entry.setText("0.80")
         self.threshold_entry.setMaximumWidth(60)
+        self.threshold_entry.setMinimumWidth(60)
         self.threshold_entry.returnPressed.connect(self.on_entry_change)
         self.threshold_entry.editingFinished.connect(self.on_entry_change)
         threshold_controls.addWidget(self.threshold_entry)
@@ -307,6 +323,7 @@ class App(QMainWindow):
 
         # Action buttons
         action_layout = QHBoxLayout()
+        action_layout.setSpacing(10)
         self.run_button = QPushButton(Strings.BTN_RUN)
         self.run_button.clicked.connect(self.run)
         action_layout.addWidget(self.run_button)
@@ -315,6 +332,7 @@ class App(QMainWindow):
         self.save_button.clicked.connect(self.save_results)
         self.save_button.setEnabled(False)
         action_layout.addWidget(self.save_button)
+        action_layout.addStretch()  # Push buttons to the left
         matching_layout.addLayout(action_layout)
 
         # Progress section
@@ -323,8 +341,10 @@ class App(QMainWindow):
         matching_layout.addWidget(self.progress_bar)
 
         self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
         matching_layout.addWidget(self.status_label)
-
+        
+        # Add stretch at the end to push everything up and prevent excessive spacing
         matching_layout.addStretch()
         
         # Apply initial theme after all widgets are created
@@ -341,14 +361,17 @@ class App(QMainWindow):
         scroll_area.setWidgetResizable(True)
         scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scroll_area.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         self.column_checkbox_widget = QWidget()
         self.column_checkbox_layout = QVBoxLayout(self.column_checkbox_widget)
+        self.column_checkbox_layout.setSpacing(5)
         scroll_area.setWidget(self.column_checkbox_widget)
-        layout.addWidget(scroll_area)
+        layout.addWidget(scroll_area, 1)  # Give scroll area stretch factor to expand
 
         # Buttons for select all/none
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(10)
         select_all_btn = QPushButton("Select All")
         select_all_btn.clicked.connect(self._select_all_columns)
         button_layout.addWidget(select_all_btn)
@@ -356,6 +379,7 @@ class App(QMainWindow):
         select_none_btn = QPushButton("Select None")
         select_none_btn.clicked.connect(self._select_none_columns)
         button_layout.addWidget(select_none_btn)
+        button_layout.addStretch()  # Push buttons to the left
         layout.addLayout(button_layout)
 
     def _detect_system_theme(self):
