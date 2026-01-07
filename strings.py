@@ -1,68 +1,80 @@
-# UI Text Strings - Customize labels, messages, and other text here
+# UI Text Strings - Uses i18n translations
+# This module provides backward compatibility and convenience access to translations
 
-class Strings:
-    # Window
-    WINDOW_TITLE = "Uxas"
-    
-    # Buttons
-    BTN_SELECT_REFERENCE = "Выбрать источник"
-    BTN_SELECT_CANDIDATES = "Выбрать сравниваемый"
-    BTN_RUN = "Запустить"
-    BTN_SAVE_RESULTS = "Сохранить результаты"
-    
-    # Labels
-    LABEL_REFERENCE_NOT_SELECTED = "Источник не выбран"
-    LABEL_CANDIDATES_NOT_SELECTED = "Сравниваемый не выбран"
-    LABEL_THRESHOLD = "Порог сходства:"
-    LABEL_PROCESSING = "Обработка..."
-    LABEL_PROCESSED = "Обработано: {current} / {total}"
-    
-    # Status messages
-    STATUS_PROCESSING = "Обработка..."
-    
-    # Error messages
-    ERROR_TITLE = "Ошибка"
-    ERROR_NO_COLUMNS = "CSV файл не содержит колонок"
-    ERROR_READ_FILE = "Не удалось прочитать файл: {error}"
-    ERROR_SELECT_BOTH_FILES = "Выбери оба CSV файла"
-    ERROR_SELECT_COLUMNS = "Выбери колонки для обоих файлов"
-    ERROR_THRESHOLD_RANGE = "Порог сходства должен быть между 0.0 и 1.0"
-    ERROR_INVALID_NUMBER = "Введите число"
-    
-    # Success messages
-    SUCCESS_TITLE = "Готово"
-    SUCCESS_FILE_SAVED = "Файл сохранён:\n{path}"
-    
-    # File dialogs
-    FILE_TYPE_CSV = "CSV files"
-    FILE_EXTENSION_CSV = "*.csv"
-    DEFAULT_RESULT_FILE = "result.csv"
-    
-    # CSV column names
-    CSV_COLUMN_REFERENCE = "reference"
-    CSV_COLUMN_BEST_MATCH = "best_match"
-    CSV_COLUMN_SIMILARITY = "similarity"
+from translations import t, get_translator
 
-    STATUS_RESULTS_READY = "Результаты готовы"
-    ERROR_NO_RESULTS_TO_SAVE = "Нет результатов для сохранения"
+
+class _StringsMeta(type):
+    """Metaclass to make Strings attributes work as class attributes."""
+    def __getattr__(cls, name):
+        # Map attribute names to translation keys
+        key_map = {
+            "WINDOW_TITLE": "window_title",
+            "BTN_SELECT_REFERENCE": "btn_select_reference",
+            "BTN_SELECT_CANDIDATES": "btn_select_candidates",
+            "BTN_RUN": "btn_run",
+            "BTN_SAVE_RESULTS": "btn_save_results",
+            "LABEL_REFERENCE_NOT_SELECTED": "label_reference_not_selected",
+            "LABEL_CANDIDATES_NOT_SELECTED": "label_candidates_not_selected",
+            "LABEL_THRESHOLD": "label_threshold",
+            "LABEL_PROCESSING": "label_processing",
+            "LABEL_PROCESSED": "label_processed",
+            "STATUS_PROCESSING": "status_processing",
+            "ERROR_TITLE": "error_title",
+            "ERROR_NO_COLUMNS": "error_no_columns",
+            "ERROR_READ_FILE": "error_read_file",
+            "ERROR_SELECT_BOTH_FILES": "error_select_both_files",
+            "ERROR_SELECT_COLUMNS": "error_select_columns",
+            "ERROR_THRESHOLD_RANGE": "error_threshold_range",
+            "ERROR_INVALID_NUMBER": "error_invalid_number",
+            "SUCCESS_TITLE": "success_title",
+            "SUCCESS_FILE_SAVED": "success_file_saved",
+            "FILE_TYPE_CSV": "file_type_csv",
+            "FILE_EXTENSION_CSV": "file_extension_csv",
+            "DEFAULT_RESULT_FILE": "default_result_file",
+            "CSV_COLUMN_REFERENCE": "csv_column_reference",
+            "CSV_COLUMN_BEST_MATCH": "csv_column_best_match",
+            "CSV_COLUMN_SIMILARITY": "csv_column_similarity",
+            "STATUS_RESULTS_READY": "status_results_ready",
+            "ERROR_NO_RESULTS_TO_SAVE": "error_no_results_to_save",
+        }
+        
+        if name in key_map:
+            return t(key_map[name])
+        raise AttributeError(f"'{cls.__name__}' object has no attribute '{name}'")
+
+
+class Strings(metaclass=_StringsMeta):
+    """String constants using i18n translations."""
+    pass
     
     # Format helpers
     @staticmethod
     def format_reference_label(filename):
-        return f"Reference: {filename}"
+        return t("format_reference", filename=filename)
     
     @staticmethod
     def format_candidates_label(filename):
-        return f"Candidates: {filename}"
+        return t("format_candidates", filename=filename)
     
     @staticmethod
     def format_processed(current, total):
-        return Strings.LABEL_PROCESSED.format(current=current, total=total)
+        return t("label_processed", current=current, total=total)
     
     @staticmethod
     def format_file_saved(path):
-        return Strings.SUCCESS_FILE_SAVED.format(path=path)
+        return t("success_file_saved", path=path)
     
     @staticmethod
     def format_read_error(error):
-        return Strings.ERROR_READ_FILE.format(error=error)
+        return t("error_read_file", error=error)
+
+
+# Create singleton instance for backward compatibility
+_strings = Strings()
+
+
+# Convenience functions for direct access
+def get_strings():
+    """Get the Strings instance."""
+    return _strings

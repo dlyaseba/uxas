@@ -15,6 +15,7 @@ from PySide6.QtGui import QFont
 
 from matcher import best_match
 from strings import Strings
+from translations import get_translator, t, LANG_EN, LANG_RU
 
 
 # Module-level function for multiprocessing (must be picklable)
@@ -178,6 +179,10 @@ class App(QMainWindow):
         # Theme management
         self.current_theme = self._detect_system_theme()
         self._setup_themes()
+        
+        # Language management
+        self.translator = get_translator()
+        self.current_language = self.translator.language
 
         # Keep raw column headers (may include empty strings) separate from what we display.
         self.ref_path = None
@@ -201,14 +206,28 @@ class App(QMainWindow):
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(10)
 
-        # Header with title and theme switcher
+        # Header with title, language selector, and theme switcher
         header_layout = QHBoxLayout()
         header_layout.setSpacing(10)
-        title_label = QLabel(Strings.WINDOW_TITLE)
+        self.title_label = QLabel(Strings.WINDOW_TITLE)
         title_font = QFont("Segoe UI", 24, QFont.Bold)
-        title_label.setFont(title_font)
-        header_layout.addWidget(title_label)
+        self.title_label.setFont(title_font)
+        header_layout.addWidget(self.title_label)
         header_layout.addStretch()
+
+        # Language selector
+        self.language_combo = QComboBox()
+        self.language_combo.addItem(t("lang_english"), LANG_EN)
+        self.language_combo.addItem(t("lang_russian"), LANG_RU)
+        # Set initial language
+        lang_index = 0 if self.current_language == LANG_EN else 1
+        self.language_combo.setCurrentIndex(lang_index)
+        self.language_combo.currentIndexChanged.connect(self.on_language_changed)
+        self.language_combo.setMaximumWidth(120)
+        language_label = QLabel("🌐")  # Language icon
+        language_label.setToolTip(t("lang_english") if self.current_language == LANG_EN else t("lang_russian"))
+        header_layout.addWidget(language_label)
+        header_layout.addWidget(self.language_combo)
 
         # Theme switcher button
         theme_icon = "🌙" if self.current_theme == "light" else "☀️"
@@ -228,14 +247,16 @@ class App(QMainWindow):
         matching_layout = QVBoxLayout(matching_tab)
         matching_layout.setContentsMargins(10, 10, 10, 10)
         matching_layout.setSpacing(10)
-        self.tab_widget.addTab(matching_tab, "Matching")
+        self.matching_tab_index = 0
+        self.tab_widget.addTab(matching_tab, t("tab_matching"))
 
         # Tab 2: Column Selection
         column_tab = QWidget()
         column_layout = QVBoxLayout(column_tab)
         column_layout.setContentsMargins(10, 10, 10, 10)
         column_layout.setSpacing(10)
-        self.tab_widget.addTab(column_tab, "Output Columns")
+        self.column_tab_index = 1
+        self.tab_widget.addTab(column_tab, t("tab_output_columns"))
 
         # Setup Column Selection Tab UI
         self._setup_column_selection_tab(column_tab, column_layout)
@@ -258,7 +279,8 @@ class App(QMainWindow):
 
         ref_column_layout = QHBoxLayout()
         ref_column_layout.setSpacing(10)
-        ref_column_layout.addWidget(QLabel("Column:"))
+        self.ref_column_label = QLabel(t("label_column"))
+        ref_column_layout.addWidget(self.ref_column_label)
         self.ref_column_combo = QComboBox()
         self.ref_column_combo.setEditable(False)
         self.ref_column_combo.currentIndexChanged.connect(self.on_ref_column_selected)
@@ -285,7 +307,8 @@ class App(QMainWindow):
 
         cand_column_layout = QHBoxLayout()
         cand_column_layout.setSpacing(10)
-        cand_column_layout.addWidget(QLabel("Column:"))
+        self.cand_column_label = QLabel(t("label_column"))
+        cand_column_layout.addWidget(self.cand_column_label)
         self.cand_column_combo = QComboBox()
         self.cand_column_combo.setEditable(False)
         self.cand_column_combo.currentIndexChanged.connect(self.on_cand_column_selected)
@@ -301,7 +324,8 @@ class App(QMainWindow):
 
         threshold_controls = QHBoxLayout()
         threshold_controls.setSpacing(10)
-        threshold_controls.addWidget(QLabel(Strings.LABEL_THRESHOLD))
+        self.threshold_label = QLabel(Strings.LABEL_THRESHOLD)
+        threshold_controls.addWidget(self.threshold_label)
 
         self.threshold_slider = QSlider(Qt.Horizontal)
         self.threshold_slider.setMinimum(0)
@@ -352,9 +376,9 @@ class App(QMainWindow):
 
     def _setup_column_selection_tab(self, tab, layout):
         """Setup the column selection tab with checkboxes."""
-        info_label = QLabel("Select additional columns from reference and candidate files to include in the output CSV.\nThe basic columns (reference, best_match, similarity) are always included.")
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
+        self.column_info_label = QLabel(t("column_selection_info"))
+        self.column_info_label.setWordWrap(True)
+        layout.addWidget(self.column_info_label)
 
         # Create scrollable area for checkboxes
         scroll_area = QScrollArea()
@@ -372,13 +396,13 @@ class App(QMainWindow):
         # Buttons for select all/none
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
-        select_all_btn = QPushButton("Select All")
-        select_all_btn.clicked.connect(self._select_all_columns)
-        button_layout.addWidget(select_all_btn)
+        self.select_all_btn = QPushButton(t("btn_select_all"))
+        self.select_all_btn.clicked.connect(self._select_all_columns)
+        button_layout.addWidget(self.select_all_btn)
 
-        select_none_btn = QPushButton("Select None")
-        select_none_btn.clicked.connect(self._select_none_columns)
-        button_layout.addWidget(select_none_btn)
+        self.select_none_btn = QPushButton(t("btn_select_none"))
+        self.select_none_btn.clicked.connect(self._select_none_columns)
+        button_layout.addWidget(self.select_none_btn)
         button_layout.addStretch()  # Push buttons to the left
         layout.addLayout(button_layout)
 
@@ -429,6 +453,107 @@ class App(QMainWindow):
                 "groupbox_bg": "#2D2D2D",
             }
         }
+
+    def on_language_changed(self, index):
+        """Handle language change."""
+        if index >= 0:
+            new_lang = self.language_combo.itemData(index)
+            if new_lang and new_lang != self.current_language:
+                self.translator.set_language(new_lang)
+                self.current_language = new_lang
+                self._update_ui_language()
+    
+    def _update_ui_language(self):
+        """Update all UI text to reflect current language."""
+        # Update title
+        self.title_label.setText(Strings.WINDOW_TITLE)
+        
+        # Update tab titles
+        self.tab_widget.setTabText(0, t("tab_matching"))
+        self.tab_widget.setTabText(1, t("tab_output_columns"))
+        
+        # Update buttons
+        self.ref_button.setText(Strings.BTN_SELECT_REFERENCE)
+        self.cand_button.setText(Strings.BTN_SELECT_CANDIDATES)
+        self.run_button.setText(Strings.BTN_RUN)
+        self.save_button.setText(Strings.BTN_SAVE_RESULTS)
+        self.select_all_btn.setText(t("btn_select_all"))
+        self.select_none_btn.setText(t("btn_select_none"))
+        
+        # Update labels
+        self.ref_column_label.setText(t("label_column"))
+        self.cand_column_label.setText(t("label_column"))
+        self.column_info_label.setText(t("column_selection_info"))
+        self.threshold_label.setText(t("label_threshold"))
+        
+        # Update file selection labels
+        if self.ref_path:
+            # File is loaded, update with translated format
+            self.ref_label.setText(Strings.format_reference_label(os.path.basename(self.ref_path)))
+        else:
+            # No file loaded, show not selected message
+            self.ref_label.setText(Strings.LABEL_REFERENCE_NOT_SELECTED)
+        
+        if self.cand_path:
+            # File is loaded, update with translated format
+            self.cand_label.setText(Strings.format_candidates_label(os.path.basename(self.cand_path)))
+        else:
+            # No file loaded, show not selected message
+            self.cand_label.setText(Strings.LABEL_CANDIDATES_NOT_SELECTED)
+        
+        # Update language combo items
+        current_index = self.language_combo.currentIndex()
+        self.language_combo.blockSignals(True)
+        self.language_combo.setItemText(0, t("lang_english"))
+        self.language_combo.setItemText(1, t("lang_russian"))
+        self.language_combo.blockSignals(False)
+        
+        # Update status labels - preserve their state but translate
+        status_text = self.status_label.text()
+        if status_text:
+            # Try to detect which status it is by checking for processed count pattern
+            if " / " in status_text or "/" in status_text:
+                # Extract current and total from the status text if possible
+                # This is tricky, so we'll just translate if we can detect it's a progress message
+                # The worker thread will update it properly during processing
+                pass
+            elif "Processing" in status_text or "Обработка" in status_text or t("status_processing").lower() in status_text.lower():
+                self.status_label.setText(Strings.STATUS_PROCESSING)
+            elif "Results ready" in status_text or "Результаты готовы" in status_text or t("status_results_ready").lower() in status_text.lower():
+                self.status_label.setText(Strings.STATUS_RESULTS_READY)
+        
+        # Update column combo boxes if files are loaded - refresh display names
+        if self.ref_columns_raw:
+            display_columns = [
+                col if (col or "").strip()
+                else t("column_no_header", index=i+1)
+                for i, col in enumerate(self.ref_columns_raw)
+            ]
+            current_ref_index = self.ref_column_combo.currentIndex()
+            self.ref_column_combo.blockSignals(True)
+            self.ref_column_combo.clear()
+            self.ref_column_combo.addItems(display_columns)
+            if 0 <= current_ref_index < len(display_columns):
+                self.ref_column_combo.setCurrentIndex(current_ref_index)
+            self.ref_column_combo.blockSignals(False)
+        
+        if self.cand_columns_raw:
+            display_columns = [
+                col if (col or "").strip()
+                else t("column_no_header", index=i+1)
+                for i, col in enumerate(self.cand_columns_raw)
+            ]
+            current_cand_index = self.cand_column_combo.currentIndex()
+            self.cand_column_combo.blockSignals(True)
+            self.cand_column_combo.clear()
+            self.cand_column_combo.addItems(display_columns)
+            if 0 <= current_cand_index < len(display_columns):
+                self.cand_column_combo.setCurrentIndex(current_cand_index)
+            self.cand_column_combo.blockSignals(False)
+        
+        # Refresh column checkboxes if files are loaded
+        if self.ref_columns_raw or self.cand_columns_raw:
+            self._update_column_checkboxes()
 
     def toggle_theme(self):
         """Toggle between light and dark themes."""
@@ -663,20 +788,20 @@ class App(QMainWindow):
         self.selected_cand_columns.clear()
 
         if not self.ref_columns_raw and not self.cand_columns_raw:
-            no_file_label = QLabel("No files loaded. Please load reference and candidate files first.")
+            no_file_label = QLabel(t("column_selection_no_files"))
             self.column_checkbox_layout.addWidget(no_file_label)
             return
 
         # Reference file columns section
         if self.ref_columns_raw:
-            ref_label = QLabel("Reference File Columns:")
+            ref_label = QLabel(t("column_selection_ref_columns"))
             ref_font = QFont("Segoe UI", 10, QFont.Bold)
             ref_label.setFont(ref_font)
             self.column_checkbox_layout.addWidget(ref_label)
 
             for i, col in enumerate(self.ref_columns_raw):
                 checkbox = QCheckBox()
-                display_name = col if (col or "").strip() else f"Column {i+1} (no header)"
+                display_name = col if (col or "").strip() else t("column_no_header", index=i+1)
                 checkbox.setText(display_name)
                 key = f"ref_{col}"
                 self.column_checkboxes[key] = checkbox
@@ -685,14 +810,14 @@ class App(QMainWindow):
 
         # Candidate file columns section
         if self.cand_columns_raw:
-            cand_label = QLabel("Candidate File Columns:")
+            cand_label = QLabel(t("column_selection_cand_columns"))
             cand_font = QFont("Segoe UI", 10, QFont.Bold)
             cand_label.setFont(cand_font)
             self.column_checkbox_layout.addWidget(cand_label)
 
             for i, col in enumerate(self.cand_columns_raw):
                 checkbox = QCheckBox()
-                display_name = col if (col or "").strip() else f"Column {i+1} (no header)"
+                display_name = col if (col or "").strip() else t("column_no_header", index=i+1)
                 checkbox.setText(display_name)
                 key = f"cand_{col}"
                 self.column_checkboxes[key] = checkbox
@@ -718,7 +843,7 @@ class App(QMainWindow):
     def load_ref(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select Reference File",
+            t("dialog_select_reference"),
             "",
             f"{Strings.FILE_TYPE_CSV} ({Strings.FILE_EXTENSION_CSV})"
         )
@@ -737,7 +862,7 @@ class App(QMainWindow):
                         self.ref_columns_raw = columns
                         display_columns = [
                             col if (col or "").strip()
-                            else f"Column {i+1} (no header)"
+                            else t("column_no_header", index=i+1)
                             for i, col in enumerate(columns)
                         ]
                         self.ref_column_combo.clear()
@@ -755,7 +880,7 @@ class App(QMainWindow):
     def load_cand(self):
         path, _ = QFileDialog.getOpenFileName(
             self,
-            "Select Candidates File",
+            t("dialog_select_candidates"),
             "",
             f"{Strings.FILE_TYPE_CSV} ({Strings.FILE_EXTENSION_CSV})"
         )
@@ -774,7 +899,7 @@ class App(QMainWindow):
                         self.cand_columns_raw = columns
                         display_columns = [
                             col if (col or "").strip()
-                            else f"Column {i+1} (no header)"
+                            else t("column_no_header", index=i+1)
                             for i, col in enumerate(columns)
                         ]
                         self.cand_column_combo.clear()
@@ -822,7 +947,7 @@ class App(QMainWindow):
     def run(self):
         # Check if a worker is already running
         if self.matching_worker and self.matching_worker.isRunning():
-            QMessageBox.warning(self, Strings.ERROR_TITLE, "Matching is already in progress. Please wait for it to finish.")
+            QMessageBox.warning(self, Strings.ERROR_TITLE, t("error_matching_in_progress"))
             return
             
         if not self.ref_path or not self.cand_path:
@@ -899,7 +1024,7 @@ class App(QMainWindow):
         try:
             save_path, _ = QFileDialog.getSaveFileName(
                 self,
-                "Save Results",
+                t("dialog_save_results"),
                 Strings.DEFAULT_RESULT_FILE,
                 f"{Strings.FILE_TYPE_CSV} ({Strings.FILE_EXTENSION_CSV})"
             )
