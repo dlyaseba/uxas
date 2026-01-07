@@ -175,6 +175,10 @@ class App(QMainWindow):
         self.setGeometry(100, 100, 700, 550)
         self.setMinimumSize(600, 450)
 
+        # Theme management
+        self.current_theme = self._detect_system_theme()
+        self._setup_themes()
+
         # Keep raw column headers (may include empty strings) separate from what we display.
         self.ref_path = None
         self.cand_path = None
@@ -204,8 +208,9 @@ class App(QMainWindow):
         header_layout.addWidget(title_label)
         header_layout.addStretch()
 
-        # Theme switcher button (placeholder for now - basic UI only)
-        self.theme_button = QPushButton("🌙")
+        # Theme switcher button
+        theme_icon = "🌙" if self.current_theme == "light" else "☀️"
+        self.theme_button = QPushButton(theme_icon)
         self.theme_button.setMaximumWidth(50)
         self.theme_button.clicked.connect(self.toggle_theme)
         header_layout.addWidget(self.theme_button)
@@ -321,6 +326,9 @@ class App(QMainWindow):
         matching_layout.addWidget(self.status_label)
 
         matching_layout.addStretch()
+        
+        # Apply initial theme after all widgets are created
+        self._apply_theme()
 
     def _setup_column_selection_tab(self, tab, layout):
         """Setup the column selection tab with checkboxes."""
@@ -350,9 +358,263 @@ class App(QMainWindow):
         button_layout.addWidget(select_none_btn)
         layout.addLayout(button_layout)
 
+    def _detect_system_theme(self):
+        """Detect system theme preference."""
+        try:
+            if platform.system() == "Windows":
+                import winreg
+                key = winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+                )
+                apps_use_light_theme = winreg.QueryValueEx(key, "AppsUseLightTheme")[0]
+                winreg.CloseKey(key)
+                return "light" if apps_use_light_theme else "dark"
+        except:
+            pass
+        # Default to light theme if detection fails
+        return "light"
+
+    def _setup_themes(self):
+        """Setup light and dark theme color schemes."""
+        self.themes = {
+            "light": {
+                "bg": "#FFFFFF",
+                "fg": "#1E1E1E",
+                "text_secondary": "#666666",
+                "button_bg": "#F0F0F0",
+                "button_fg": "#1E1E1E",
+                "button_active": "#E0E0E0",
+                "accent": "#0078D4",
+                "accent_active": "#005A9E",
+                "entry_bg": "#FFFFFF",
+                "scale_trough": "#E0E0E0",
+                "groupbox_bg": "#F5F5F5",
+            },
+            "dark": {
+                "bg": "#1E1E1E",
+                "fg": "#FFFFFF",
+                "text_secondary": "#CCCCCC",
+                "button_bg": "#2D2D2D",
+                "button_fg": "#FFFFFF",
+                "button_active": "#3D3D3D",
+                "accent": "#0078D4",
+                "accent_active": "#40A6FF",
+                "entry_bg": "#2D2D2D",
+                "scale_trough": "#3D3D3D",
+                "groupbox_bg": "#2D2D2D",
+            }
+        }
+
     def toggle_theme(self):
-        """Toggle between light and dark themes - placeholder for now."""
-        pass
+        """Toggle between light and dark themes."""
+        self.current_theme = "dark" if self.current_theme == "light" else "light"
+        self._apply_theme()
+
+    def _apply_theme(self):
+        """Apply the current theme to all widgets."""
+        theme = self.themes[self.current_theme]
+        
+        # Update theme button icon
+        theme_icon = "☀️" if self.current_theme == "light" else "🌙"
+        self.theme_button.setText(theme_icon)
+        
+        # Apply stylesheet to the application
+        stylesheet = f"""
+            QMainWindow {{
+                background-color: {theme["bg"]};
+                color: {theme["fg"]};
+            }}
+            
+            QWidget {{
+                background-color: {theme["bg"]};
+                color: {theme["fg"]};
+            }}
+            
+            QLabel {{
+                background-color: {theme["bg"]};
+                color: {theme["fg"]};
+            }}
+            
+            QPushButton {{
+                background-color: {theme["button_bg"]};
+                color: {theme["button_fg"]};
+                border: none;
+                padding: 8px 15px;
+                border-radius: 4px;
+            }}
+            
+            QPushButton:hover {{
+                background-color: {theme["button_active"]};
+            }}
+            
+            QPushButton:pressed {{
+                background-color: {theme["button_active"]};
+            }}
+            
+            QPushButton:disabled {{
+                background-color: {theme["button_bg"]};
+                color: {theme["text_secondary"]};
+            }}
+            
+            QLineEdit {{
+                background-color: {theme["entry_bg"]};
+                color: {theme["fg"]};
+                border: 1px solid {theme["scale_trough"]};
+                border-radius: 3px;
+                padding: 4px;
+            }}
+            
+            QComboBox {{
+                background-color: {theme["entry_bg"]};
+                color: {theme["fg"]};
+                border: 1px solid {theme["scale_trough"]};
+                border-radius: 3px;
+                padding: 4px;
+            }}
+            
+            QComboBox::drop-down {{
+                border: none;
+            }}
+            
+            QComboBox QAbstractItemView {{
+                background-color: {theme["entry_bg"]};
+                color: {theme["fg"]};
+                selection-background-color: {theme["accent"]};
+                selection-color: white;
+            }}
+            
+            QSlider::groove:horizontal {{
+                border: 1px solid {theme["scale_trough"]};
+                height: 8px;
+                background: {theme["scale_trough"]};
+                border-radius: 4px;
+            }}
+            
+            QSlider::handle:horizontal {{
+                background: {theme["accent"]};
+                border: 1px solid {theme["accent"]};
+                width: 18px;
+                margin: -2px 0;
+                border-radius: 9px;
+            }}
+            
+            QSlider::handle:horizontal:hover {{
+                background: {theme["accent_active"]};
+            }}
+            
+            QProgressBar {{
+                border: 1px solid {theme["scale_trough"]};
+                border-radius: 4px;
+                text-align: center;
+                background-color: {theme["scale_trough"]};
+            }}
+            
+            QProgressBar::chunk {{
+                background-color: {theme["accent"]};
+                border-radius: 3px;
+            }}
+            
+            QGroupBox {{
+                border: 1px solid {theme["scale_trough"]};
+                border-radius: 4px;
+                margin-top: 10px;
+                padding-top: 10px;
+                background-color: {theme["groupbox_bg"]};
+                color: {theme["fg"]};
+                font-weight: bold;
+            }}
+            
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+                background-color: {theme["groupbox_bg"]};
+            }}
+            
+            QCheckBox {{
+                background-color: {theme["bg"]};
+                color: {theme["fg"]};
+            }}
+            
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border: 1px solid {theme["scale_trough"]};
+                border-radius: 3px;
+                background-color: {theme["bg"]};
+            }}
+            
+            QCheckBox::indicator:checked {{
+                background-color: {theme["accent"]};
+                border-color: {theme["accent"]};
+            }}
+            
+            QTabWidget::pane {{
+                border: 1px solid {theme["scale_trough"]};
+                background-color: {theme["bg"]};
+            }}
+            
+            QTabBar::tab {{
+                background-color: {theme["button_bg"]};
+                color: {theme["fg"]};
+                padding: 8px 20px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }}
+            
+            QTabBar::tab:selected {{
+                background-color: {theme["bg"]};
+                color: {theme["fg"]};
+            }}
+            
+            QScrollArea {{
+                border: none;
+                background-color: {theme["bg"]};
+            }}
+            
+            QScrollBar:vertical {{
+                background-color: {theme["bg"]};
+                width: 12px;
+                border: none;
+            }}
+            
+            QScrollBar::handle:vertical {{
+                background-color: {theme["scale_trough"]};
+                min-height: 20px;
+                border-radius: 6px;
+            }}
+            
+            QScrollBar::handle:vertical:hover {{
+                background-color: {theme["button_bg"]};
+            }}
+        """
+        
+        # Special styling for run button
+        run_button_style = f"""
+            QPushButton {{
+                background-color: {theme["accent"]};
+                color: white;
+                font-weight: bold;
+            }}
+            
+            QPushButton:hover {{
+                background-color: {theme["accent_active"]};
+            }}
+            
+            QPushButton:pressed {{
+                background-color: {theme["accent_active"]};
+            }}
+        """
+        self.run_button.setStyleSheet(run_button_style)
+        
+        # Apply main stylesheet
+        self.setStyleSheet(stylesheet)
+        
+        # Update specific labels with secondary text color
+        self.ref_label.setStyleSheet(f"color: {theme['text_secondary']}; background-color: {theme['bg']};")
+        self.cand_label.setStyleSheet(f"color: {theme['text_secondary']}; background-color: {theme['bg']};")
+        self.status_label.setStyleSheet(f"color: {theme['text_secondary']}; background-color: {theme['bg']};")
 
     def _select_all_columns(self):
         """Select all column checkboxes."""
@@ -443,6 +705,9 @@ class App(QMainWindow):
                     if columns:
                         self.ref_path = path
                         self.ref_label.setText(Strings.format_reference_label(os.path.basename(path)))
+                        # Update label color when file is loaded (from secondary to primary)
+                        theme = self.themes[self.current_theme]
+                        self.ref_label.setStyleSheet(f"color: {theme['fg']}; background-color: {theme['bg']};")
                         # Store raw headers and build user-friendly labels
                         self.ref_columns_raw = columns
                         display_columns = [
@@ -477,6 +742,9 @@ class App(QMainWindow):
                     if columns:
                         self.cand_path = path
                         self.cand_label.setText(Strings.format_candidates_label(os.path.basename(path)))
+                        # Update label color when file is loaded (from secondary to primary)
+                        theme = self.themes[self.current_theme]
+                        self.cand_label.setStyleSheet(f"color: {theme['fg']}; background-color: {theme['bg']};")
                         # Store raw headers and build user-friendly labels
                         self.cand_columns_raw = columns
                         display_columns = [
@@ -547,6 +815,9 @@ class App(QMainWindow):
         self.run_button.setEnabled(False)
         self.progress_bar.setValue(0)
         self.status_label.setText(Strings.STATUS_PROCESSING)
+        # Update status label color based on theme
+        theme = self.themes[self.current_theme]
+        self.status_label.setStyleSheet(f"color: {theme['fg']}; background-color: {theme['bg']};")
 
         # Create and start worker thread
         self.matching_worker = MatchingWorker(
@@ -567,11 +838,17 @@ class App(QMainWindow):
         """Update progress bar and status label."""
         self.progress_bar.setValue(int(progress))
         self.status_label.setText(Strings.format_processed(current, total))
+        # Update status label color based on theme
+        theme = self.themes[self.current_theme]
+        self.status_label.setStyleSheet(f"color: {theme['text_secondary']}; background-color: {theme['bg']};")
 
     def _on_results_ready(self, result_rows):
         """Called when matching is complete."""
         self._last_results = result_rows
         self.status_label.setText(Strings.STATUS_RESULTS_READY)
+        # Update status label color based on theme
+        theme = self.themes[self.current_theme]
+        self.status_label.setStyleSheet(f"color: {theme['fg']}; background-color: {theme['bg']};")
         self.save_button.setEnabled(True)
         self.run_button.setEnabled(True)
         self.matching_worker = None
@@ -636,6 +913,9 @@ class App(QMainWindow):
         self.run_button.setEnabled(True)
         self.progress_bar.setValue(0)
         self.status_label.setText("")
+        # Update status label color based on theme
+        theme = self.themes[self.current_theme]
+        self.status_label.setStyleSheet(f"color: {theme['text_secondary']}; background-color: {theme['bg']};")
         self.save_button.setEnabled(False)
         self._last_results = None
 
