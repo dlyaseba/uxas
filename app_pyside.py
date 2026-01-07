@@ -236,7 +236,7 @@ class App(QMainWindow):
         self._setup_column_selection_tab(column_tab, column_layout)
 
         # Reference file section
-        ref_group = QGroupBox(" Reference File ")
+        ref_group = QGroupBox("")
         ref_layout = QVBoxLayout(ref_group)
 
         ref_button_layout = QHBoxLayout()
@@ -259,7 +259,7 @@ class App(QMainWindow):
         matching_layout.addWidget(ref_group)
 
         # Candidates file section
-        cand_group = QGroupBox(" Candidates File ")
+        cand_group = QGroupBox("")
         cand_layout = QVBoxLayout(cand_group)
 
         cand_button_layout = QHBoxLayout()
@@ -282,7 +282,7 @@ class App(QMainWindow):
         matching_layout.addWidget(cand_group)
 
         # Threshold section
-        threshold_group = QGroupBox(" Similarity Threshold ")
+        threshold_group = QGroupBox("")
         threshold_layout = QVBoxLayout(threshold_group)
 
         threshold_controls = QHBoxLayout()
@@ -432,6 +432,8 @@ class App(QMainWindow):
             }}
             
             QLabel {{
+                padding: 10px;
+                border-radius: 4px;
                 background-color: {theme["bg"]};
                 color: {theme["fg"]};
             }}
@@ -519,7 +521,7 @@ class App(QMainWindow):
                 border: 1px solid {theme["scale_trough"]};
                 border-radius: 4px;
                 margin-top: 10px;
-                padding-top: 10px;
+                padding: 10px;
                 background-color: {theme["groupbox_bg"]};
                 color: {theme["fg"]};
                 font-weight: bold;
@@ -527,8 +529,7 @@ class App(QMainWindow):
             
             QGroupBox::title {{
                 subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
+                border-radius: 4px;
                 background-color: {theme["groupbox_bg"]};
             }}
             
@@ -795,6 +796,11 @@ class App(QMainWindow):
             self.cand_column = self.cand_columns_raw[index]
 
     def run(self):
+        # Check if a worker is already running
+        if self.matching_worker and self.matching_worker.isRunning():
+            QMessageBox.warning(self, Strings.ERROR_TITLE, "Matching is already in progress. Please wait for it to finish.")
+            return
+            
         if not self.ref_path or not self.cand_path:
             QMessageBox.critical(self, Strings.ERROR_TITLE, Strings.ERROR_SELECT_BOTH_FILES)
             return
@@ -856,6 +862,8 @@ class App(QMainWindow):
     def _on_matching_error(self, error_msg):
         """Handle errors from matching worker."""
         QMessageBox.critical(self, Strings.ERROR_TITLE, error_msg)
+        if self.matching_worker:
+            self.matching_worker = None
         self._reset_ui()
 
     def save_results(self):
@@ -918,6 +926,18 @@ class App(QMainWindow):
         self.status_label.setStyleSheet(f"color: {theme['text_secondary']}; background-color: {theme['bg']};")
         self.save_button.setEnabled(False)
         self._last_results = None
+
+    def closeEvent(self, event):
+        """Handle window close event - ensure worker thread is cleaned up."""
+        if self.matching_worker and self.matching_worker.isRunning():
+            # Request thread to stop
+            self.matching_worker.terminate()
+            # Wait for thread to finish (with timeout)
+            if not self.matching_worker.wait(3000):  # Wait up to 3 seconds
+                # Force terminate if it doesn't stop gracefully
+                self.matching_worker.terminate()
+                self.matching_worker.wait()
+        event.accept()
 
 
 if __name__ == "__main__":
