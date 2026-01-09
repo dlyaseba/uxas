@@ -75,13 +75,25 @@ class MatchingWorker(QThread):
     
     def run(self):
         try:
+            # Check for interruption before starting
+            if self.isInterruptionRequested():
+                return
+            
             # Read all reference rows (to access all columns)
             with open(self.ref_path, encoding="utf-8") as f:
                 reference_rows = list(csv.DictReader(f))
 
+            # Check for interruption after file read
+            if self.isInterruptionRequested():
+                return
+
             # Read all candidate rows (to access all columns)
             with open(self.cand_path, encoding="utf-8") as f:
                 candidate_rows = list(csv.DictReader(f))
+
+            # Check for interruption after file read
+            if self.isInterruptionRequested():
+                return
 
             result_rows = []
             total = len(reference_rows)
@@ -105,6 +117,10 @@ class MatchingWorker(QThread):
                         
                         processed = 0
                         for result in results:
+                            # Check for interruption during processing
+                            if self.isInterruptionRequested():
+                                return
+                                
                             result_rows.append(result)
                             processed += 1
                             
@@ -113,9 +129,11 @@ class MatchingWorker(QThread):
                                 progress = (processed / total) * 100
                                 self.progress_updated.emit(progress, processed, total)
                     
-                    # Final progress update
-                    self.progress_updated.emit(100, total, total)
-                    self.finished.emit(result_rows)
+                    # Check for interruption before final emit
+                    if not self.isInterruptionRequested():
+                        # Final progress update
+                        self.progress_updated.emit(100, total, total)
+                        self.finished.emit(result_rows)
                     return
                 except Exception as e:
                     # Fallback to sequential processing if multiprocessing fails
@@ -125,6 +143,10 @@ class MatchingWorker(QThread):
             candidate_names = [r.get(self.cand_col, "") or "" for r in candidate_rows]
             
             for idx, ref_row in enumerate(reference_rows):
+                # Check for interruption during processing
+                if self.isInterruptionRequested():
+                    return
+                    
                 ref_name = ref_row.get(self.ref_col, "") or ""
                 match, score = best_match(ref_name, candidate_names, self.threshold)
                 
@@ -162,11 +184,13 @@ class MatchingWorker(QThread):
                     self.progress_updated.emit(progress, idx + 1, total)
 
             # Hand over to main thread to notify user that results are ready.
-            self.progress_updated.emit(100, total, total)
-            self.finished.emit(result_rows)
+            if not self.isInterruptionRequested():
+                self.progress_updated.emit(100, total, total)
+                self.finished.emit(result_rows)
 
         except Exception as e:
-            self.error.emit(str(e))
+            if not self.isInterruptionRequested():
+                self.error.emit(str(e))
 
 
 class App(QMainWindow):
@@ -949,6 +973,11 @@ class App(QMainWindow):
         if self.matching_worker and self.matching_worker.isRunning():
             QMessageBox.warning(self, Strings.ERROR_TITLE, t("error_matching_in_progress"))
             return
+        
+        # Clean up any existing finished worker before creating a new one
+        if self.matching_worker and not self.matching_worker.isRunning():
+            self.matching_worker.deleteLater()
+            self.matching_worker = None
             
         if not self.ref_path or not self.cand_path:
             QMessageBox.critical(self, Strings.ERROR_TITLE, Strings.ERROR_SELECT_BOTH_FILES)
@@ -1006,12 +1035,17 @@ class App(QMainWindow):
         self.status_label.setStyleSheet(f"color: {theme['fg']}; background-color: {theme['bg']};")
         self.save_button.setEnabled(True)
         self.run_button.setEnabled(True)
-        self.matching_worker = None
+        # Clean up worker thread properly
+        if self.matching_worker:
+            self.matching_worker.deleteLater()
+            self.matching_worker = None
 
     def _on_matching_error(self, error_msg):
         """Handle errors from matching worker."""
         QMessageBox.critical(self, Strings.ERROR_TITLE, error_msg)
+        # Clean up worker thread properly
         if self.matching_worker:
+            self.matching_worker.deleteLater()
             self.matching_worker = None
         self._reset_ui()
 
@@ -1079,13 +1113,25 @@ class App(QMainWindow):
     def closeEvent(self, event):
         """Handle window close event - ensure worker thread is cleaned up."""
         if self.matching_worker and self.matching_worker.isRunning():
+            # Disconnect signals first to prevent any callbacks during shutdown
+            try:
+                self.matching_worker.progress_updated.disconnect()
+                self.matching_worker.finished.disconnect()
+                self.matching_worker.error.disconnect()
+            except:
+                pass  # Signals may already be disconnected
+            
             # Request thread to stop
-            self.matching_worker.terminate()
+            self.matching_worker.requestInterruption()
             # Wait for thread to finish (with timeout)
-            if not self.matching_worker.wait(3000):  # Wait up to 3 seconds
+            if not self.matching_worker.wait(5000):  # Wait up to 5 seconds
                 # Force terminate if it doesn't stop gracefully
                 self.matching_worker.terminate()
-                self.matching_worker.wait()
+                self.matching_worker.wait(1000)  # Wait for termination
+            
+            # Clean up the worker
+            self.matching_worker.deleteLater()
+            self.matching_worker = None
         event.accept()
 
 
