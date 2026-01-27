@@ -20,8 +20,18 @@ class MatchingWorker(QThread):
     finished = Signal(list)  # result_rows
     error = Signal(str)
     
-    def __init__(self, ref_path, cand_path, ref_col, cand_col, selected_ref_cols, 
-                 selected_cand_cols, threshold, column_names=None):
+    def __init__(
+        self,
+        ref_path,
+        cand_path,
+        ref_col,
+        cand_col,
+        selected_ref_cols,
+        selected_cand_cols,
+        threshold,
+        column_names=None,
+        parent=None,
+    ):
         """
         Initialize matching worker.
         
@@ -35,7 +45,9 @@ class MatchingWorker(QThread):
             threshold: Similarity threshold (0-1)
             column_names: Dict with CSV_COLUMN_* keys for output column names
         """
-        super().__init__()
+        # Parent the thread to the main window (or provided parent) so that its
+        # lifetime is tied to the UI and it can be managed safely on shutdown.
+        super().__init__(parent)
         self.ref_path = ref_path
         self.cand_path = cand_path
         self.ref_col = ref_col
@@ -182,8 +194,17 @@ class CSVProcessor:
     """
     
     @staticmethod
-    def create_worker(ref_path, cand_path, ref_col, cand_col, selected_ref_cols,
-                     selected_cand_cols, threshold, column_names=None):
+    def create_worker(
+        ref_path,
+        cand_path,
+        ref_col,
+        cand_col,
+        selected_ref_cols,
+        selected_cand_cols,
+        threshold,
+        column_names=None,
+        parent=None,
+    ):
         """
         Create a matching worker for processing CSV files.
         
@@ -191,9 +212,15 @@ class CSVProcessor:
             MatchingWorker instance ready to start
         """
         return MatchingWorker(
-            ref_path, cand_path, ref_col, cand_col,
-            selected_ref_cols, selected_cand_cols,
-            threshold, column_names
+            ref_path,
+            cand_path,
+            ref_col,
+            cand_col,
+            selected_ref_cols,
+            selected_cand_cols,
+            threshold,
+            column_names,
+            parent,
         )
     
     @staticmethod

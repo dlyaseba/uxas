@@ -67,26 +67,80 @@ def shift_weight(pos_a: int, pos_b: int, max_len: int) -> float:
     return 0.5 + 0.5 * base
 
 
+def _directional_overlap_score(
+    source_tokens: Sequence[str],
+    target_tokens: Sequence[str],
+    len_max: int,
+) -> float:
+    """
+    Directional positional-overlap score from source -> target.
+
+    Each source token that appears in the target contributes via `shift_weight`,
+    and we normalize by the number of source tokens to obtain a coverage-like
+    value in [0, 1].
+    """
+    if not source_tokens or not target_tokens:
+        return 0.0
+
+    # Use dict for O(1) lookup instead of list.index() which is O(n)
+    target_positions = {token: i for i, token in enumerate(target_tokens)}
+    score = 0.0
+
+    for i, token in enumerate(source_tokens):
+        if token in target_positions:
+            j = target_positions[token]
+            score += shift_weight(i, j, len_max)
+
+    return score / len(source_tokens)
+
+
 def overlap_score(a_tokens: Sequence[str], b_tokens: Sequence[str], len_max: int) -> float:
     """
     Backwards-compatible overlap score between two tokenized strings.
 
-    This retains the original public helper API used elsewhere in the project.
-    It implements a simple exact-token overlap with positional weighting.
+    This retains the original public helper API used elsewhere in the project
+    while making the score symmetric and coverage-aware.
+
+    We compute directional coverage scores:
+      - score(a -> b): how well `a` is covered inside `b`
+      - score(b -> a): how well `b` is covered inside `a`
+
+    These two are then combined with a length-aware weighting that emphasizes
+    coverage of the shorter side so that short strings that fully match a part
+    of a longer one can still receive a high score.
     """
     if not a_tokens or not b_tokens:
         return 0.0
 
-    # Use dict for O(1) lookup instead of list.index() which is O(n)
-    b_token_positions = {token: i for i, token in enumerate(b_tokens)}
-    score = 0.0
+    len_a = len(a_tokens)
+    len_b = len(b_tokens)
 
-    for i, token in enumerate(a_tokens):
-        if token in b_token_positions:
-            j = b_token_positions[token]
-            score += shift_weight(i, j, len_max)
+    if len_a == 0 or len_b == 0:
+        return 0.0
 
-    return score / len(a_tokens)
+    # Directional positional overlaps
+    score_a_to_b = _directional_overlap_score(a_tokens, b_tokens, len_max)
+    score_b_to_a = _directional_overlap_score(b_tokens, a_tokens, len_max)
+
+    # Length ratio in (0, 1]; smaller when strings differ a lot in length
+    min_len = min(len_a, len_b)
+    max_len = max(len_a, len_b)
+    length_ratio = min_len / max_len if max_len > 0 else 1.0
+
+    # Emphasize coverage of the shorter side to avoid unfairly penalizing
+    # short candidates that match a contiguous part of a long reference.
+    short_side_score = max(score_a_to_b, score_b_to_a)
+    long_side_score = min(score_a_to_b, score_b_to_a)
+
+    # Weight for the shorter side is in [0.85, 1.0]; when lengths are equal
+    # both directions are usually similar, so using max is effectively symmetric.
+    alpha = 0.85 + 0.15 * length_ratio
+    beta = 1.0 - alpha
+
+    combined = alpha * short_side_score + beta * long_side_score
+
+    # Safety clamp to [0, 1]
+    return max(0.0, min(1.0, combined))
 
 
 def _compute_document_frequencies(
@@ -267,8 +321,21 @@ def _directional_similarity(
         if total_extra > 0 and matched_weight > 0:
             # Relative amount of "noise" compared to matched signal
             noise_ratio = total_extra / (matched_weight + total_extra)
-            # Smooth penalty factor in (0, 1]; more noise -> smaller factor
-            noise_penalty = 1.0 - NOISE_PENALTY_STRENGTH * noise_ratio
+
+            # Scale the impact of noise by how long the *source* is compared to
+            # the combined length. When the source is much shorter than the target
+            # (e.g., short candidate vs long reference), we down-weight this
+            # penalty very aggressively so that covering the short side well is
+            # strongly rewarded, and unmatched tail tokens in the longer string
+            # do not dominate the score.
+            length_ratio = src_len / (src_len + tgt_len) if (src_len + tgt_len) > 0 else 0.5
+            # Square the ratio so that for very short sources the effective noise
+            # becomes tiny (e.g., 0.2 -> 0.04), while remaining closer to 1.0
+            # when lengths are comparable.
+            effective_noise = noise_ratio * (length_ratio ** 2)
+
+            # Smooth penalty factor in (0, 1]; more effective noise -> smaller factor
+            noise_penalty = 1.0 - NOISE_PENALTY_STRENGTH * effective_noise
         else:
             noise_penalty = 1.0
     else:
@@ -376,9 +443,29 @@ def best_match(ref: str, candidates: Iterable[str], threshold: float = None):
         score_cand_to_ref = _directional_similarity(
             cand_tokens, ref_tokens, df_map, doc_count
         )
+        # Make similarity symmetric and coverage-aware. We compute both
+        # directions:
+        #   - ref -> cand : how well the reference is covered by the candidate
+        #   - cand -> ref : how well the candidate is covered by the reference
+        #
+        # For very short candidates that fit inside a long reference, we want
+        # a high score when the short side is well covered, without overly
+        # penalizing the unmatched tail of the longer string.
+        min_len = min(len(ref_tokens), len(cand_tokens))
+        max_len = max(len(ref_tokens), len(cand_tokens))
+        length_ratio = min_len / max_len if max_len > 0 else 1.0
 
-        # Make similarity symmetric. Using mean provides smoother behavior.
-        score = (score_ref_to_cand + score_cand_to_ref) / 2.0
+        # Emphasize the better-covered (typically shorter) direction.
+        short_side_score = max(score_ref_to_cand, score_cand_to_ref)
+        long_side_score = min(score_ref_to_cand, score_cand_to_ref)
+
+        # Weight for the shorter side is in [0.85, 1.0]; when strings have
+        # similar length, both directions tend to be close, so this remains
+        # effectively symmetric while still being robust for short candidates.
+        alpha = 0.85 + 0.15 * length_ratio
+        beta = 1.0 - alpha
+
+        score = alpha * short_side_score + beta * long_side_score
 
         # Normalization safety (should already be true)
         score = max(0.0, min(1.0, score))

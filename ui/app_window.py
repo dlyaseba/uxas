@@ -797,7 +797,8 @@ class App(QMainWindow):
         theme = self.themes[self.current_theme]
         self.status_label.setStyleSheet(f"color: {theme['fg']}; background-color: {theme['bg']};")
 
-        # Create and start worker thread
+        # Create and start worker thread. We pass `self` as the parent so that
+        # the thread is owned by the main window and can be shut down safely.
         self.matching_worker = CSVProcessor.create_worker(
             self.ref_path,
             self.cand_path,
@@ -806,7 +807,8 @@ class App(QMainWindow):
             self.selected_ref_columns,
             self.selected_cand_columns,
             threshold,
-            self.column_names
+            self.column_names,
+            parent=self,
         )
         self.matching_worker.progress_updated.connect(self._update_progress)
         self.matching_worker.finished.connect(self._on_results_ready)
@@ -830,8 +832,14 @@ class App(QMainWindow):
         self.status_label.setStyleSheet(f"color: {theme['fg']}; background-color: {theme['bg']};")
         self.save_button.setEnabled(True)
         self.run_button.setEnabled(True)
-        # Clean up worker thread properly
+        # Clean up worker thread properly. At this point the thread should
+        # already have finished, but we explicitly wait to avoid any race
+        # conditions where the underlying QThread might still be shutting down.
         if self.matching_worker:
+            try:
+                self.matching_worker.wait(1000)
+            except Exception:
+                pass
             self.matching_worker.deleteLater()
             self.matching_worker = None
 
@@ -840,6 +848,11 @@ class App(QMainWindow):
         QMessageBox.critical(self, Strings.ERROR_TITLE, error_msg)
         # Clean up worker thread properly
         if self.matching_worker:
+            try:
+                # Ensure the thread is fully stopped before deletion
+                self.matching_worker.wait(1000)
+            except Exception:
+                pass
             self.matching_worker.deleteLater()
             self.matching_worker = None
         self._reset_ui()
