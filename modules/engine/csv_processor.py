@@ -117,6 +117,13 @@ class MatchingWorker(QThread):
                                 progress = (processed / total) * 100
                                 self.progress_updated.emit(progress, processed, total)
                     
+                    # Resolve conflicts where the same candidate was matched
+                    # to multiple references by keeping only the best-scoring
+                    # reference per candidate.
+                    result_rows = self._resolve_candidate_conflicts(
+                        result_rows, selected_cand_cols
+                    )
+
                     # Check for interruption before final emit
                     if not self.isInterruptionRequested():
                         # Final progress update
@@ -129,7 +136,7 @@ class MatchingWorker(QThread):
 
             # Sequential processing (fallback or for small datasets)
             candidate_names = [r.get(self.cand_col, "") or "" for r in candidate_rows]
-            
+
             ref_col_name = self.column_names.get("CSV_COLUMN_REFERENCE", "reference")
             match_col_name = self.column_names.get("CSV_COLUMN_BEST_MATCH", "best_match")
             similarity_col_name = self.column_names.get("CSV_COLUMN_SIMILARITY", "similarity")
@@ -177,12 +184,78 @@ class MatchingWorker(QThread):
 
             # Hand over to main thread to notify user that results are ready.
             if not self.isInterruptionRequested():
+                # Resolve conflicts where the same candidate was matched to
+                # multiple references by keeping only the best-scoring
+                # reference per candidate.
+                result_rows = self._resolve_candidate_conflicts(
+                    result_rows, selected_cand_cols
+                )
                 self.progress_updated.emit(100, total, total)
                 self.finished.emit(result_rows)
 
         except Exception as e:
             if not self.isInterruptionRequested():
                 self.error.emit(str(e))
+
+    def _resolve_candidate_conflicts(self, result_rows, selected_cand_cols):
+        """
+        Post-process result rows to ensure that each candidate string is used
+        at most once, assigning it to the reference with the highest score.
+
+        This is a lightweight global conflict resolution step that:
+          - looks at all (reference, candidate, score) triples
+          - for each candidate string, keeps only the row with the best score
+          - clears the match, similarity, and candidate-side columns for
+            weaker rows that pointed to the same candidate.
+
+        This approach:
+          - avoids building a full score matrix
+          - works for both multiprocessing and sequential paths
+          - ensures "later better" matches can win, regardless of order
+        """
+        if not result_rows:
+            return result_rows
+
+        match_col_name = self.column_names.get("CSV_COLUMN_BEST_MATCH", "best_match")
+        similarity_col_name = self.column_names.get("CSV_COLUMN_SIMILARITY", "similarity")
+
+        # Track the best row index per candidate string
+        best_for_candidate = {}  # candidate_str -> (best_score, row_index)
+        losers = set()
+
+        for idx, row in enumerate(result_rows):
+            cand = (row.get(match_col_name) or "").strip()
+            if not cand:
+                continue
+
+            raw_score = row.get(similarity_col_name, "")
+            try:
+                score = float(raw_score) if raw_score != "" else 0.0
+            except (TypeError, ValueError):
+                score = 0.0
+
+            prev = best_for_candidate.get(cand)
+            if prev is None or score > prev[0]:
+                # Mark previous best (if any) as loser
+                if prev is not None:
+                    losers.add(prev[1])
+                best_for_candidate[cand] = (score, idx)
+            else:
+                losers.add(idx)
+
+        if not losers:
+            return result_rows
+
+        # Clear matches and candidate-side columns for losing rows
+        for idx in losers:
+            row = result_rows[idx]
+            row[match_col_name] = ""
+            row[similarity_col_name] = ""
+            for col in selected_cand_cols:
+                if col in row:
+                    row[col] = ""
+
+        return result_rows
 
 
 class CSVProcessor:
