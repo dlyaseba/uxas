@@ -11,6 +11,7 @@ from PySide6.QtGui import QFont
 
 # Import from new modular structure
 from modules.engine.csv_processor import CSVProcessor
+from modules.engine.processor_utils import build_output_column_mapping
 from modules.config import Strings, get_translator, t, LANG_EN, LANG_RU
 from modules.config.settings import Settings, load_settings
 from modules.utils.theme_utils import detect_system_theme, get_theme_colors
@@ -862,24 +863,9 @@ class App(QMainWindow):
         if not self._last_results:
             QMessageBox.critical(self, Strings.ERROR_TITLE, Strings.ERROR_NO_RESULTS_TO_SAVE)
             return
-
-        # Determine which column names were selected from both reference and
-        # candidate files. For these, we will write separate columns in the
-        # result CSV (e.g. "name (ref)" and "name (cand)") so that values
-        # from the two sources are never merged into a single column.
+        # Snapshot selected columns for deterministic behavior
         ref_selected = set(self.selected_ref_columns or [])
         cand_selected = set(self.selected_cand_columns or [])
-        conflicting_cols = {c for c in ref_selected & cand_selected if c}
-
-        def _make_ref_header(col: str) -> str:
-            if col in conflicting_cols and col:
-                return f"{col} (ref)"
-            return col
-
-        def _make_cand_header(col: str) -> str:
-            if col in conflicting_cols and col:
-                return f"{col} (cand)"
-            return col
 
         try:
             default_file = self.settings.default_result_file
@@ -895,33 +881,45 @@ class App(QMainWindow):
                 return
 
             with open(save_path, "w", newline="", encoding="utf-8") as f:
-                # Build fieldnames: selected columns first, then basic match columns.
-                # For columns selected from both reference and candidate files we
-                # use disambiguated headers ("name (ref)" / "name (cand)") that
-                # match the keys produced by the processing engine.
+                # Basic match columns are reserved names that should not be
+                # reused for data columns.
+                basic_columns = [
+                    self.column_names.get("CSV_COLUMN_REFERENCE", "reference"),
+                    self.column_names.get("CSV_COLUMN_BEST_MATCH", "best_match"),
+                    self.column_names.get("CSV_COLUMN_SIMILARITY", "similarity"),
+                ]
+
+                # Rebuild the same column mapping the worker used so that
+                # headers in the saved CSV exactly match the keys in
+                # `self._last_results`. This guarantees that when both ref
+                # and cand have a column like "ID", they appear as "ID",
+                # "ID(2)", etc. with their data kept separate.
+                column_mapping = build_output_column_mapping(
+                    getattr(self, "ref_columns_raw", []) or [],
+                    getattr(self, "cand_columns_raw", []) or [],
+                    ref_selected,
+                    cand_selected,
+                    reserved_names=basic_columns,
+                )
+
                 fieldnames = []
 
                 # Add selected reference columns in their original order
-                if hasattr(self, 'ref_columns_raw') and self.ref_columns_raw:
+                if getattr(self, "ref_columns_raw", None):
                     for col in self.ref_columns_raw:
                         if col in ref_selected:
-                            header = _make_ref_header(col)
+                            header = column_mapping.get(("ref", col), col)
                             fieldnames.append(header)
 
                 # Add selected candidate columns in their original order
-                if hasattr(self, 'cand_columns_raw') and self.cand_columns_raw:
+                if getattr(self, "cand_columns_raw", None):
                     for col in self.cand_columns_raw:
                         if col in cand_selected:
-                            header = _make_cand_header(col)
+                            header = column_mapping.get(("cand", col), col)
                             if header not in fieldnames:
                                 fieldnames.append(header)
 
                 # Always add basic match columns at the end
-                basic_columns = [
-                    self.column_names.get("CSV_COLUMN_REFERENCE", "reference"),
-                    self.column_names.get("CSV_COLUMN_BEST_MATCH", "best_match"),
-                    self.column_names.get("CSV_COLUMN_SIMILARITY", "similarity")
-                ]
                 for col in basic_columns:
                     if col not in fieldnames:
                         fieldnames.append(col)

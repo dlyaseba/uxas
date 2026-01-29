@@ -10,7 +10,7 @@ from multiprocessing import Pool, cpu_count
 from PySide6.QtCore import QThread, Signal
 
 from .matcher import best_match
-from .processor_utils import process_single_match
+from .processor_utils import process_single_match, build_output_column_mapping
 
 
 class MatchingWorker(QThread):
@@ -66,7 +66,9 @@ class MatchingWorker(QThread):
             
             # Read all reference rows (to access all columns)
             with open(self.ref_path, encoding="utf-8") as f:
-                reference_rows = list(csv.DictReader(f))
+                ref_reader = csv.DictReader(f)
+                reference_rows = list(ref_reader)
+                ref_columns_order = list(ref_reader.fieldnames or [])
 
             # Check for interruption after file read
             if self.isInterruptionRequested():
@@ -74,7 +76,9 @@ class MatchingWorker(QThread):
 
             # Read all candidate rows (to access all columns)
             with open(self.cand_path, encoding="utf-8") as f:
-                candidate_rows = list(csv.DictReader(f))
+                cand_reader = csv.DictReader(f)
+                candidate_rows = list(cand_reader)
+                cand_columns_order = list(cand_reader.fieldnames or [])
 
             # Check for interruption after file read
             if self.isInterruptionRequested():
@@ -87,24 +91,28 @@ class MatchingWorker(QThread):
             selected_ref_cols = list(self.selected_ref_cols)
             selected_cand_cols = list(self.selected_cand_cols)
 
-            # Determine which column names are selected from both reference and
-            # candidate files so we can keep their values in separate output
-            # columns instead of merging them into one.
-            ref_cols_set = set(selected_ref_cols)
-            cand_cols_set = set(selected_cand_cols)
-            conflicting_cols = {c for c in ref_cols_set & cand_cols_set if c}
+            # Precompute a stable, shared mapping from (source, original_name)
+            # to the final output header so that:
+            #   - ref/cand columns with the same name always become distinct
+            #     headers (e.g. "ID" and "ID(2)")
+            #   - multiprocessing, sequential processing, and CSV saving all
+            #     agree on the header names.
+            ref_col_name = self.column_names.get("CSV_COLUMN_REFERENCE", "reference")
+            match_col_name = self.column_names.get("CSV_COLUMN_BEST_MATCH", "best_match")
+            similarity_col_name = self.column_names.get("CSV_COLUMN_SIMILARITY", "similarity")
+
+            column_mapping = build_output_column_mapping(
+                ref_columns_order,
+                cand_columns_order,
+                selected_ref_cols,
+                selected_cand_cols,
+                reserved_names=[ref_col_name, match_col_name, similarity_col_name],
+            )
 
             def _make_output_key(col: str, source: str) -> str:
-                """
-                Compute the output key for a given source/column combination.
-
-                For columns that are selected from both the reference and
-                candidate files, we suffix their names with " (ref)" or
-                " (cand)" so that both values appear as separate columns in
-                the result instead of overwriting each other.
-                """
-                if col in conflicting_cols and col:
-                    return f"{col} (ref)" if source == "ref" else f"{col} (cand)"
+                """Lookup helper that uses the shared column mapping."""
+                if column_mapping:
+                    return column_mapping.get((source, col), col)
                 return col
 
             # Use parallel processing if we have multiple CPUs and multiple items
@@ -114,8 +122,17 @@ class MatchingWorker(QThread):
                 try:
                     # Prepare arguments for parallel processing
                     args_list = [
-                        (ref_row, self.ref_col, selected_ref_cols, candidate_rows, 
-                         self.cand_col, selected_cand_cols, self.threshold, self.column_names)
+                        (
+                            ref_row,
+                            self.ref_col,
+                            selected_ref_cols,
+                            candidate_rows,
+                            self.cand_col,
+                            selected_cand_cols,
+                            self.threshold,
+                            self.column_names,
+                            column_mapping,
+                        )
                         for ref_row in reference_rows
                     ]
                     
@@ -141,7 +158,7 @@ class MatchingWorker(QThread):
                     # to multiple references by keeping only the best-scoring
                     # reference per candidate.
                     result_rows = self._resolve_candidate_conflicts(
-                        result_rows, selected_cand_cols
+                        result_rows, selected_cand_cols, column_mapping
                     )
 
                     # Check for interruption before final emit
@@ -156,10 +173,6 @@ class MatchingWorker(QThread):
 
             # Sequential processing (fallback or for small datasets)
             candidate_names = [r.get(self.cand_col, "") or "" for r in candidate_rows]
-
-            ref_col_name = self.column_names.get("CSV_COLUMN_REFERENCE", "reference")
-            match_col_name = self.column_names.get("CSV_COLUMN_BEST_MATCH", "best_match")
-            similarity_col_name = self.column_names.get("CSV_COLUMN_SIMILARITY", "similarity")
             
             for idx, ref_row in enumerate(reference_rows):
                 # Check for interruption during processing
@@ -210,7 +223,7 @@ class MatchingWorker(QThread):
                 # multiple references by keeping only the best-scoring
                 # reference per candidate.
                 result_rows = self._resolve_candidate_conflicts(
-                    result_rows, selected_cand_cols
+                    result_rows, selected_cand_cols, column_mapping
                 )
                 self.progress_updated.emit(100, total, total)
                 self.finished.emit(result_rows)
@@ -219,7 +232,7 @@ class MatchingWorker(QThread):
             if not self.isInterruptionRequested():
                 self.error.emit(str(e))
 
-    def _resolve_candidate_conflicts(self, result_rows, selected_cand_cols):
+    def _resolve_candidate_conflicts(self, result_rows, selected_cand_cols, column_mapping=None):
         """
         Post-process result rows to ensure that each candidate string is used
         at most once, assigning it to the reference with the highest score.
@@ -268,20 +281,27 @@ class MatchingWorker(QThread):
         if not losers:
             return result_rows
 
+        # Work out which candidate-side keys we need to clear in losing rows.
+        cand_keys_to_clear = set()
+        if column_mapping:
+            for (source, col), out_key in column_mapping.items():
+                if source == "cand" and col in selected_cand_cols:
+                    cand_keys_to_clear.add(out_key)
+        else:
+            # Backwards-compatible behavior: clear by original and "_cand" keys.
+            for col in selected_cand_cols:
+                cand_keys_to_clear.add(col)
+                if col:
+                    cand_keys_to_clear.add(f"{col}_cand")
+
         # Clear matches and candidate-side columns for losing rows
         for idx in losers:
             row = result_rows[idx]
             row[match_col_name] = ""
             row[similarity_col_name] = ""
-            for col in selected_cand_cols:
-                # Clear both legacy candidate keys (same as source column
-                # name) and the new disambiguated keys with " (cand)" suffix.
-                possible_keys = [col]
-                if col:
-                    possible_keys.append(f"{col} (cand)")
-                for key in possible_keys:
-                    if key in row:
-                        row[key] = ""
+            for key in cand_keys_to_clear:
+                if key in row:
+                    row[key] = ""
 
         return result_rows
 
