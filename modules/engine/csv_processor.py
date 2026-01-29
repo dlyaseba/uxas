@@ -87,6 +87,26 @@ class MatchingWorker(QThread):
             selected_ref_cols = list(self.selected_ref_cols)
             selected_cand_cols = list(self.selected_cand_cols)
 
+            # Determine which column names are selected from both reference and
+            # candidate files so we can keep their values in separate output
+            # columns instead of merging them into one.
+            ref_cols_set = set(selected_ref_cols)
+            cand_cols_set = set(selected_cand_cols)
+            conflicting_cols = {c for c in ref_cols_set & cand_cols_set if c}
+
+            def _make_output_key(col: str, source: str) -> str:
+                """
+                Compute the output key for a given source/column combination.
+
+                For columns that are selected from both the reference and
+                candidate files, we suffix their names with " (ref)" or
+                " (cand)" so that both values appear as separate columns in
+                the result instead of overwriting each other.
+                """
+                if col in conflicting_cols and col:
+                    return f"{col} (ref)" if source == "ref" else f"{col} (cand)"
+                return col
+
             # Use parallel processing if we have multiple CPUs and multiple items
             num_workers = min(cpu_count(), 8)  # Cap at 8 to avoid overhead
             
@@ -159,7 +179,8 @@ class MatchingWorker(QThread):
                 # Add selected columns from reference row
                 for col in selected_ref_cols:
                     if col in ref_row:
-                        result[col] = ref_row[col]
+                        key = _make_output_key(col, "ref")
+                        result[key] = ref_row[col]
                 
                 # Add selected columns from matched candidate row
                 if match:
@@ -173,7 +194,8 @@ class MatchingWorker(QThread):
                     if matched_row:
                         for col in selected_cand_cols:
                             if col in matched_row:
-                                result[col] = matched_row[col]
+                                key = _make_output_key(col, "cand")
+                                result[key] = matched_row[col]
                 
                 result_rows.append(result)
                 
@@ -252,8 +274,14 @@ class MatchingWorker(QThread):
             row[match_col_name] = ""
             row[similarity_col_name] = ""
             for col in selected_cand_cols:
-                if col in row:
-                    row[col] = ""
+                # Clear both legacy candidate keys (same as source column
+                # name) and the new disambiguated keys with " (cand)" suffix.
+                possible_keys = [col]
+                if col:
+                    possible_keys.append(f"{col} (cand)")
+                for key in possible_keys:
+                    if key in row:
+                        row[key] = ""
 
         return result_rows
 

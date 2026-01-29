@@ -28,6 +28,30 @@ def process_single_match(args):
     
     ref_row, ref_col, selected_ref_cols, candidate_rows, cand_col, selected_cand_cols, threshold, column_names = args
     ref_name = ref_row.get(ref_col, "") or ""
+
+    # Normalize selected columns to lists to avoid surprises if None/sets are passed.
+    selected_ref_cols = list(selected_ref_cols or [])
+    selected_cand_cols = list(selected_cand_cols or [])
+
+    # Compute columns that are selected both for reference and candidate files.
+    # For these, we must keep separate output columns instead of letting one
+    # overwrite the other in the result dictionary.
+    ref_cols_set = set(selected_ref_cols)
+    cand_cols_set = set(selected_cand_cols)
+    conflicting_cols = {c for c in ref_cols_set & cand_cols_set if c}
+
+    def _make_output_key(col: str, source: str) -> str:
+        """
+        Compute the output key for a given source/column combination.
+
+        When the same column name is selected in both reference and candidate
+        files, we disambiguate them by appending a suffix, e.g. "name (ref)"
+        and "name (cand)". This prevents their values from being merged into
+        a single column in the output.
+        """
+        if col in conflicting_cols and col:
+            return f"{col} (ref)" if source == "ref" else f"{col} (cand)"
+        return col
     
     # Extract candidate names for matching
     candidate_names = [r.get(cand_col, "") or "" for r in candidate_rows]
@@ -43,7 +67,8 @@ def process_single_match(args):
     # Add selected columns from reference row
     for col in selected_ref_cols:
         if col in ref_row:
-            result[col] = ref_row[col]
+            key = _make_output_key(col, "ref")
+            result[key] = ref_row[col]
     
     # Add selected columns from matched candidate row
     if match:
@@ -57,6 +82,7 @@ def process_single_match(args):
         if matched_row:
             for col in selected_cand_cols:
                 if col in matched_row:
-                    result[col] = matched_row[col]
+                    key = _make_output_key(col, "cand")
+                    result[key] = matched_row[col]
     
     return result

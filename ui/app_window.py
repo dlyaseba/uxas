@@ -863,6 +863,24 @@ class App(QMainWindow):
             QMessageBox.critical(self, Strings.ERROR_TITLE, Strings.ERROR_NO_RESULTS_TO_SAVE)
             return
 
+        # Determine which column names were selected from both reference and
+        # candidate files. For these, we will write separate columns in the
+        # result CSV (e.g. "name (ref)" and "name (cand)") so that values
+        # from the two sources are never merged into a single column.
+        ref_selected = set(self.selected_ref_columns or [])
+        cand_selected = set(self.selected_cand_columns or [])
+        conflicting_cols = {c for c in ref_selected & cand_selected if c}
+
+        def _make_ref_header(col: str) -> str:
+            if col in conflicting_cols and col:
+                return f"{col} (ref)"
+            return col
+
+        def _make_cand_header(col: str) -> str:
+            if col in conflicting_cols and col:
+                return f"{col} (cand)"
+            return col
+
         try:
             default_file = self.settings.default_result_file
             save_path, _ = QFileDialog.getSaveFileName(
@@ -877,21 +895,27 @@ class App(QMainWindow):
                 return
 
             with open(save_path, "w", newline="", encoding="utf-8") as f:
-                # Build fieldnames: selected columns first, then basic match columns
+                # Build fieldnames: selected columns first, then basic match columns.
+                # For columns selected from both reference and candidate files we
+                # use disambiguated headers ("name (ref)" / "name (cand)") that
+                # match the keys produced by the processing engine.
                 fieldnames = []
-                
+
                 # Add selected reference columns in their original order
                 if hasattr(self, 'ref_columns_raw') and self.ref_columns_raw:
                     for col in self.ref_columns_raw:
-                        if col in self.selected_ref_columns:
-                            fieldnames.append(col)
-                
+                        if col in ref_selected:
+                            header = _make_ref_header(col)
+                            fieldnames.append(header)
+
                 # Add selected candidate columns in their original order
                 if hasattr(self, 'cand_columns_raw') and self.cand_columns_raw:
                     for col in self.cand_columns_raw:
-                        if col in self.selected_cand_columns and col not in fieldnames:
-                            fieldnames.append(col)
-                
+                        if col in cand_selected:
+                            header = _make_cand_header(col)
+                            if header not in fieldnames:
+                                fieldnames.append(header)
+
                 # Always add basic match columns at the end
                 basic_columns = [
                     self.column_names.get("CSV_COLUMN_REFERENCE", "reference"),
